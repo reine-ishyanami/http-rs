@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -28,7 +28,7 @@ impl Default for Server {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Api {
+struct Api {
     request: Request,
     response: Response,
 }
@@ -43,23 +43,47 @@ impl Default for Api {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Request {
-    method: String,
+enum HttpMethod {
+    GET,POST,PUT,DELETE,HEAD,PATCH,OPTIONS,CONNECT,TRACE
+}
+
+impl HttpMethod {
+    pub fn to_string(&self) -> &str{
+        match self {
+            HttpMethod::GET => "GET",
+            HttpMethod::POST => "POST",
+            HttpMethod::PUT => "PUT",
+            HttpMethod::DELETE => "DELETE",
+            HttpMethod::HEAD => "HEAD",
+            HttpMethod::PATCH => "PATCH",
+            HttpMethod::OPTIONS => "OPTIONS",
+            HttpMethod::CONNECT => "CONNECT",
+            HttpMethod::TRACE => "TRACE",
+        }
+    }
+}
+
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct Request {
+    method: HttpMethod,
     url: String,
+    query: Option<Vec<String>>
 }
 
 impl Default for Request {
     fn default() -> Self {
         Self {
-            method: "GET".to_string(),
+            method: HttpMethod::GET,
             url: "/".to_string(),
+            query: Some(vec!["name".to_string(), "age".to_string()])
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Response {
-    timeout: u32,
+struct Response {
+    timeout: u64,
     content_type: String, // 响应内容类型，json或text
     data: String, 
 }
@@ -107,24 +131,41 @@ pub async fn handle(server: Server) {
                     let path_full = parts.next().unwrap_or_default(); // 完整路径（可能包含查询参数）
 
                     // 分割路径和查询字符串
-                    let (path, _query) = match path_full.split_once('?') {
+                    let (path, query) = match path_full.split_once('?') {
                         Some((p, q)) => (p, q),
                         None => (path_full, ""),
                     };
 
+
                     let mut response = String::new();
                     let mut timeout = 0u64;
+                    let mut status_code = 0u16;
+                    let query_map = parse_query_string(query);
+                    let mut equals_keys = |opt|{
+                        let map_keys: Vec<String> = query_map.keys().cloned().collect();
+                        if let Some(arr) = opt {
+                            if arr == map_keys {
+                                println!("参数名称，参数数量匹配成功");
+                                println!("{:?}", query_map);
+                            } else {
+                                eprintln!("参数名称，参数数量不完全匹配");
+                                status_code = 400;
+                            }
+                        }
+                    };
 
                     for ele in apis.lock().await.iter() {
                         match split_at_second_slash(path) {
                             // 多层url
                             UrlSplit::Pair(first, second) => {   
                                 // 请求方法正确，请求路径正确
-                                if ele.request.method.to_uppercase() == method
+                                if ele.request.method.to_string() == method
                                     && *base_url.lock().await == first
                                     && ele.request.url == second
                                 {
-                                    timeout = ele.response.timeout as u64;
+                                    // 判断参数是否匹配成功
+                                    equals_keys(ele.request.query.clone());
+                                    timeout = ele.response.timeout;
                                     let data = &ele.response.data;
                                     response = match ele.response.content_type.as_str() {
                                         "text" | "TEXT" => 
@@ -146,15 +187,17 @@ pub async fn handle(server: Server) {
                             }
                             // 单层url
                             UrlSplit::Single(one) => {
-                                if ele.request.method.to_uppercase() == method {
+                                if ele.request.method.to_string() == method {
                                     let base_url = format!("{}{}", *base_url.lock().await, ele.request.url);
                                     let base_url = if base_url.ends_with("/") {
                                         &base_url[..base_url.len()-1]
                                     }else {
                                         base_url.as_str()
                                     };
-                                    if one == base_url {
-                                        timeout = ele.response.timeout as u64;
+                                    if one == base_url {   
+                                        // 判断参数是否匹配成功
+                                        equals_keys(ele.request.query.clone());
+                                        timeout = ele.response.timeout;
                                         let data = &ele.response.data;
                                         response = match ele.response.content_type.as_str() {
                                             "text" | "TEXT" => 
@@ -188,12 +231,37 @@ pub async fn handle(server: Server) {
                             error
                         );
                     }
+                    if status_code != 0 {                   
+                        let error = "参数不匹配";
+                        response = format!(
+                            "HTTP/1.1 {} OK\r\nContent-Length: {}\r\n\r\n{}",
+                            status_code,
+                            error.len(),
+                            error
+                        );
+                    }
                     socket.write_all(response.as_bytes()).await.unwrap();
                 }
                 Err(e) => println!("Failed to read from socket: {}", e),
             }
         });
     }
+}
+
+
+///
+/// 将query参数收集成map
+/// 
+fn parse_query_string(query: &str) -> HashMap<String, String> {
+    query.split('&') // 按 "&" 分割查询字符串
+         .filter_map(|part| { // 过滤并映射每一部分
+             let mut split = part.splitn(2, '='); // 按 "=" 分割，最多分割成两部分
+             match (split.next(), split.next()) {
+                 (Some(key), Some(value)) => Some((key.to_owned(), value.to_owned())),
+                 _ => None, // 忽略不能被分割成两部分的项
+             }
+         })
+         .collect() // 收集成 HashMap
 }
 
 
