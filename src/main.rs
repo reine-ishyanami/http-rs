@@ -5,8 +5,9 @@ use std::{
 };
 
 mod server;
+mod entity;
 
-use server::Server;
+use crate::entity::Server;
 
 use crate::server::handle;
 
