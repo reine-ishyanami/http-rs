@@ -144,6 +144,12 @@ fn parse_query_string(query: &str) -> HashMap<String, String> {
 ///
 /// 判断全路径是否匹配得当
 fn is_path_equals(path: &str, base_url: &String, sub_url: &String) -> bool {
+    // 如果path以/结尾，则去掉最后的/
+    let path = if path.ends_with("/") && path.len() > 1 {
+        &path[..path.len() - 1]
+    } else {
+        path
+    };
     if base_url == "/" {
         path == sub_url
     } else {
@@ -151,6 +157,40 @@ fn is_path_equals(path: &str, base_url: &String, sub_url: &String) -> bool {
             path == base_url
         } else {
             path == format!("{}{}", base_url, sub_url)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests{
+    use std::collections::HashMap;
+
+    use super::is_path_equals;
+
+    use super::parse_query_string;
+
+    #[test]
+    fn parse_query_string_test(){
+        let json_str = "name=reine&age=23";
+        let result = parse_query_string(json_str);
+        let mut map = HashMap::new();
+        map.insert(String::from("name"), String::from("reine"));
+        map.insert(String::from("age"), String::from("23"));
+        assert_eq!(result, map);
+    }
+
+    #[test]
+    fn is_path_equals_test(){
+        let data = [
+            ("/hello/", &String::from("/hello"), &String::from("/")),
+            ("/hello", &String::from("/hello"), &String::from("/")),
+            ("/hello/", &String::from("/"), &String::from("/hello")),
+            ("/hello/reine", &String::from("/hello"), &String::from("/reine")),
+            ("/", &String::from("/"), &String::from("/")),
+            ("//", &String::from("/"), &String::from("/"))
+        ];
+        for (a,b,c) in data {
+            assert!(is_path_equals(a, b, c));
         }
     }
 }

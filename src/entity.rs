@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Server {
     pub host: String,
@@ -13,10 +12,10 @@ pub struct Server {
 impl Default for Server {
     fn default() -> Self {
         Self {
-            host: "127.0.0.1".to_string(),
+            host: String::from("127.0.0.1"),
             port: 8080,
-            base: "/".to_string(),
-            error: "404 not found".to_string(),
+            base: String::from("/"),
+            error: String::from("404 not found"),
             apis: vec![Api::default()],
         }
     }
@@ -77,8 +76,8 @@ impl Default for Request {
     fn default() -> Self {
         Self {
             method: HttpMethod::GET,
-            url: "/".to_string(),
-            query: Some(vec!["name".to_string(), "age".to_string()]),
+            url: String::from("/"),
+            query: Some(vec![String::from("name"), String::from("age")]),
         }
     }
 }
@@ -92,8 +91,8 @@ pub enum ContentType {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Response {
     pub timeout: u64,
-    pub content_type: ContentType,
     // 响应内容类型，json或text
+    pub content_type: ContentType,
     pub data: String,
 }
 
@@ -102,7 +101,7 @@ impl Default for Response {
         Self {
             timeout: 0,
             content_type: ContentType::TEXT,
-            data: "hello world".to_string(),
+            data: String::from("hello world"),
         }
     }
 }
