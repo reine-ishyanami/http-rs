@@ -15,7 +15,7 @@ pub async fn handle(server: Server) {
         .await
         .unwrap();
 
-    println!("Listening on {}:{}", host, port);
+    println!("http sevrer running on http://{}:{}", host, port);
 
     let apis = Arc::new(server.apis);
     let base_url = Arc::new(server.base);
@@ -85,10 +85,9 @@ pub async fn handle(server: Server) {
                 };
                 // 遍历接口配置信息
                 for ele in apis.iter() {
-                    if ele.request.method.to_string() != method {
-                        continue;
-                    }
-                    if !is_path_equals(path, base_url.as_ref(), &ele.request.url) {
+                    if ele.request.method.to_string() != method
+                        || !is_path_equals(path, base_url.as_ref(), &ele.request.url)
+                    {
                         continue;
                     }
                     genarate_response(ele);
@@ -162,7 +161,7 @@ fn is_path_equals(path: &str, base_url: &String, sub_url: &String) -> bool {
 }
 
 #[cfg(test)]
-mod tests{
+mod tests {
     use std::collections::HashMap;
 
     use super::is_path_equals;
@@ -170,7 +169,7 @@ mod tests{
     use super::parse_query_string;
 
     #[test]
-    fn parse_query_string_test(){
+    fn parse_query_string_test() {
         let json_str = "name=reine&age=23";
         let result = parse_query_string(json_str);
         let mut map = HashMap::new();
@@ -180,16 +179,16 @@ mod tests{
     }
 
     #[test]
-    fn is_path_equals_test(){
+    fn is_path_equals_test() {
         let data = [
             ("/hello/", &String::from("/hello"), &String::from("/")),
             ("/hello", &String::from("/hello"), &String::from("/")),
             ("/hello/", &String::from("/"), &String::from("/hello")),
             ("/hello/reine", &String::from("/hello"), &String::from("/reine")),
             ("/", &String::from("/"), &String::from("/")),
-            ("//", &String::from("/"), &String::from("/"))
+            ("//", &String::from("/"), &String::from("/")),
         ];
-        for (a,b,c) in data {
+        for (a, b, c) in data {
             assert!(is_path_equals(a, b, c));
         }
     }
