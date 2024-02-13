@@ -88,6 +88,23 @@ pub enum ContentType {
     TEXT,
 }
 
+impl ContentType {
+    pub fn wrap_response(&self, data: String) -> String {
+        match self {
+            ContentType::TEXT => format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                data.len(),
+                data
+            ),
+            ContentType::JSON => format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                data.len(),
+                data
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Response {
     pub timeout: u64,

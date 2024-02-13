@@ -5,7 +5,7 @@ use tokio::{
     time::{sleep, Duration},
 };
 
-use crate::entity::{Api, ContentType, Server};
+use crate::entity::{Api, Server};
 
 pub async fn handle(server: Server) {
     let host = server.host;
@@ -62,26 +62,12 @@ pub async fn handle(server: Server) {
                     }
                 };
 
-                // 此处使用&传参，不丢失所有权
                 let mut genarate_response = |ele: &Api| {
                     // 判断参数是否匹配成功
                     equals_keys(ele.request.query.clone());
                     timeout = ele.response.timeout;
                     let data = ele.response.data.clone();
-                    response = match ele.response.content_type {
-                            ContentType::TEXT =>
-                                format!(
-                                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
-                                    data.len(),
-                                    data
-                                ),
-                            ContentType::JSON =>
-                                format!(
-                                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-                                    data.len(),
-                                    data
-                                )
-                        }
+                    response = ele.response.content_type.wrap_response(data);
                 };
                 // 遍历接口配置信息
                 for ele in apis.iter() {
