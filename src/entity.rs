@@ -1,3 +1,5 @@
+use std::{fs::File, io::Read, path::Path};
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -86,6 +88,7 @@ impl Default for Request {
 pub enum ContentType {
     JSON,
     TEXT,
+    HTML,
 }
 
 impl ContentType {
@@ -101,6 +104,23 @@ impl ContentType {
                 data.len(),
                 data
             ),
+            ContentType::HTML => {
+                // 如果类型是HTML，则返回结果应该是一个文件路径
+                match File::open(Path::new(data.as_str())) {
+                    Ok(file) => {
+                        let mut file = file;
+                        // 读取文件内容到字符串
+                        let mut contents = String::new();
+                        file.read_to_string(&mut contents).unwrap();
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
+                            contents.len(),
+                            contents
+                        )
+                    }
+                    Err(_) => String::new()
+                }
+            }
         }
     }
 }
