@@ -7,6 +7,8 @@ use tokio::{
 
 use crate::entity::{Api, Server};
 
+static CORS_HEADER: &str = "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET,POST,PUT,DELETE,HEAD,PATCH,OPTIONS,CONNECT,TRACE, \r\nAccess-Control-Allow-Headers: Content-Type, Authorization, Content-Length, X-Requested-With \r\nAccess-Control-Allow-Credentials: true \r\n";
+
 pub async fn handle(server: Server) {
     let host = server.host;
     let port = server.port;
@@ -26,7 +28,9 @@ pub async fn handle(server: Server) {
         let apis = apis.clone();
         let base_url = base_url.clone();
         let error = error.clone();
+        let cors = server.cors;
         tokio::spawn(async move {
+            let cors_header = if cors { CORS_HEADER } else { "" };
             let mut buf = [0; 1024];
             // 读取请求数据
             if let Ok(_) = socket.read(&mut buf).await {
@@ -67,7 +71,7 @@ pub async fn handle(server: Server) {
                     equals_keys(ele.request.query.clone());
                     timeout = ele.response.timeout;
                     let data = ele.response.data.clone();
-                    response = ele.response.content_type.wrap_response(data);
+                    response = ele.response.content_type.wrap_response(data, cors_header);
                 };
                 // 遍历接口配置信息
                 for ele in apis.iter() {
@@ -87,7 +91,8 @@ pub async fn handle(server: Server) {
                 if response.len() == 0 {
                     let error = error;
                     response = format!(
-                        "HTTP/1.1 404 OK\r\nContent-Length: {}\r\n\r\n{}",
+                        "HTTP/1.1 404 OK\r\n{}Content-Length: {}\r\n\r\n{}",
+                        cors_header,
                         error.len(),
                         error
                     );
@@ -96,7 +101,8 @@ pub async fn handle(server: Server) {
                 if status_code != 0 {
                     let error = "参数不匹配";
                     response = format!(
-                        "HTTP/1.1 {} OK\r\nContent-Length: {}\r\n\r\n{}",
+                        "HTTP/1.1 {} OK\r\n{}Content-Length: {}\r\n\r\n{}",
+                        cors_header,
                         status_code,
                         error.len(),
                         error
@@ -170,7 +176,11 @@ mod tests {
             ("/hello/", &String::from("/hello"), &String::from("/")),
             ("/hello", &String::from("/hello"), &String::from("/")),
             ("/hello/", &String::from("/"), &String::from("/hello")),
-            ("/hello/reine", &String::from("/hello"), &String::from("/reine")),
+            (
+                "/hello/reine",
+                &String::from("/hello"),
+                &String::from("/reine"),
+            ),
             ("/", &String::from("/"), &String::from("/")),
             ("//", &String::from("/"), &String::from("/")),
         ];

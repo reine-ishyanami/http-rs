@@ -7,6 +7,7 @@ pub struct Server {
     pub host: String,
     pub port: u16,
     pub base: String,
+    pub cors: bool,
     pub error: String,
     pub apis: Vec<Api>,
 }
@@ -17,6 +18,7 @@ impl Default for Server {
             host: String::from("127.0.0.1"),
             port: 8080,
             base: String::from("/"),
+            cors: false,
             error: String::from("404 not found"),
             apis: vec![Api::default()],
         }
@@ -91,16 +93,19 @@ pub enum ContentType {
     HTML,
 }
 
+
 impl ContentType {
-    pub fn wrap_response(&self, data: String) -> String {
+    pub fn wrap_response(&self, data: String, cors_header: &str) -> String {
         match self {
             ContentType::TEXT => format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                "HTTP/1.1 200 OK\r\n{}Content-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                cors_header,
                 data.len(),
                 data
             ),
             ContentType::JSON => format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                "HTTP/1.1 200 OK\r\n{}Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                cors_header,
                 data.len(),
                 data
             ),
@@ -113,12 +118,13 @@ impl ContentType {
                         let mut contents = String::new();
                         file.read_to_string(&mut contents).unwrap();
                         format!(
-                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
+                            "HTTP/1.1 200 OK\r\n{}Content-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
+                            cors_header,
                             contents.len(),
                             contents
                         )
                     }
-                    Err(_) => String::new()
+                    Err(_) => String::new(),
                 }
             }
         }
