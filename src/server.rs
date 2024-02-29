@@ -7,8 +7,6 @@ use tokio::{
 
 use crate::entity::{Api, Server};
 
-static CORS_HEADER: &str = "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET,POST,PUT,DELETE,HEAD,PATCH,OPTIONS,CONNECT,TRACE, \r\nAccess-Control-Allow-Headers: Content-Type, Authorization, Content-Length, X-Requested-With \r\nAccess-Control-Allow-Credentials: true \r\n";
-
 pub async fn handle(server: Server) {
     let host = server.host;
     let port = server.port;
@@ -23,14 +21,23 @@ pub async fn handle(server: Server) {
     let base_url = Arc::new(server.base);
     let error = Arc::new(server.error);
 
+    let mut cors_header = String::new();
+    if server.cors {
+        cors_header.push_str("Access-Control-Allow-Origin: *\r\n");  // 允许所有远程地址访问
+        cors_header.push_str("Access-Control-Allow-Methods: GET,POST,PUT,DELETE,HEAD,PATCH,OPTIONS,CONNECT,TRACE, \r\n");  // 允许所有请求方法
+        cors_header.push_str("Access-Control-Allow-Headers: Content-Type, Authorization, Content-Length, X-Requested-With \r\n");  // 允许如下请求头
+        cors_header.push_str("Access-Control-Allow-Credentials: true \r\n");  // 允许跨域请求携带凭据
+    }
+
+    let cors_header = Arc::new(cors_header);
+
     loop {
         let (mut socket, _) = listener.accept().await.unwrap();
         let apis = apis.clone();
         let base_url = base_url.clone();
         let error = error.clone();
-        let cors = server.cors;
+        let cors_header = cors_header.clone();
         tokio::spawn(async move {
-            let cors_header = if cors { CORS_HEADER } else { "" };
             let mut buf = [0; 1024];
             // 读取请求数据
             if let Ok(_) = socket.read(&mut buf).await {
@@ -71,7 +78,7 @@ pub async fn handle(server: Server) {
                     equals_keys(ele.request.query.clone());
                     timeout = ele.response.timeout;
                     let data = ele.response.data.clone();
-                    response = ele.response.content_type.wrap_response(data, cors_header);
+                    response = ele.response.content_type.wrap_response(data, cors_header.as_str());
                 };
                 // 遍历接口配置信息
                 for ele in apis.iter() {
@@ -91,7 +98,7 @@ pub async fn handle(server: Server) {
                 if response.len() == 0 {
                     let error = error;
                     response = format!(
-                        "HTTP/1.1 404 OK\r\n{}Content-Length: {}\r\n\r\n{}",
+                        "HTTP/1.1 404 OK\r\n{}Content-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
                         cors_header,
                         error.len(),
                         error
@@ -101,9 +108,9 @@ pub async fn handle(server: Server) {
                 if status_code != 0 {
                     let error = "参数不匹配";
                     response = format!(
-                        "HTTP/1.1 {} OK\r\n{}Content-Length: {}\r\n\r\n{}",
-                        cors_header,
+                        "HTTP/1.1 {} OK\r\n{}Content-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
                         status_code,
+                        cors_header,
                         error.len(),
                         error
                     );

@@ -98,13 +98,13 @@ impl ContentType {
     pub fn wrap_response(&self, data: String, cors_header: &str) -> String {
         match self {
             ContentType::TEXT => format!(
-                "HTTP/1.1 200 OK\r\n{}Content-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                "HTTP/1.1 200 OK\r\n{}Content-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
                 cors_header,
                 data.len(),
                 data
             ),
             ContentType::JSON => format!(
-                "HTTP/1.1 200 OK\r\n{}Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                "HTTP/1.1 200 OK\r\n{}Content-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
                 cors_header,
                 data.len(),
                 data
@@ -118,7 +118,7 @@ impl ContentType {
                         let mut contents = String::new();
                         file.read_to_string(&mut contents).unwrap();
                         format!(
-                            "HTTP/1.1 200 OK\r\n{}Content-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
+                            "HTTP/1.1 200 OK\r\n{}Content-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
                             cors_header,
                             contents.len(),
                             contents
