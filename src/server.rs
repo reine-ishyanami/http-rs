@@ -1,4 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
+use log::{debug, info, warn};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -15,7 +16,7 @@ pub async fn handle(server: Server) {
         .await
         .unwrap();
 
-    println!("http sevrer running on http://{}:{}", host, port);
+    info!("http sevrer running on http://{}:{}", host, port);
 
     let apis = Arc::new(server.apis);
     let base_url = Arc::new(server.base);
@@ -24,7 +25,7 @@ pub async fn handle(server: Server) {
     let mut cors_header = String::new();
     if server.cors {
         cors_header.push_str("Access-Control-Allow-Origin: *\r\n");  // 允许所有远程地址访问
-        cors_header.push_str("Access-Control-Allow-Methods: GET,POST,PUT,DELETE,HEAD,PATCH,OPTIONS,CONNECT,TRACE, \r\n");  // 允许所有请求方法
+        cors_header.push_str("Access-Control-Allow-Methods: * \r\n");  // 允许所有请求方法
         cors_header.push_str("Access-Control-Allow-Headers: Content-Type, Authorization, Content-Length, X-Requested-With \r\n");  // 允许如下请求头
         cors_header.push_str("Access-Control-Allow-Credentials: true \r\n");  // 允许跨域请求携带凭据
     }
@@ -33,6 +34,8 @@ pub async fn handle(server: Server) {
 
     loop {
         let (mut socket, _) = listener.accept().await.unwrap();
+        let socket_addr = &socket.peer_addr().unwrap();
+        debug!("New request came from {}, port {}", socket_addr.ip(), socket_addr.port());
         let apis = apis.clone();
         let base_url = base_url.clone();
         let error = error.clone();
@@ -64,10 +67,10 @@ pub async fn handle(server: Server) {
                     let map_keys: Vec<String> = query_map.keys().cloned().collect();
                     if let Some(arr) = opt {
                         if arr == map_keys {
-                            println!("参数名称，参数数量匹配成功");
-                            println!("{:?}", query_map);
+                            debug!("参数名称，参数数量匹配成功");
+                            debug!("{:?}", query_map);
                         } else {
-                            eprintln!("参数名称，参数数量不完全匹配");
+                            warn!("参数名称，参数数量不完全匹配");
                             status_code = 400;
                         }
                     }

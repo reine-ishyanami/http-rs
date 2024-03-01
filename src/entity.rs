@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Server {
+    pub log_level: String,
     pub host: String,
     pub port: u16,
     pub base: String,
@@ -15,6 +16,7 @@ pub struct Server {
 impl Default for Server {
     fn default() -> Self {
         Self {
+            log_level: String::from("info"),
             host: String::from("127.0.0.1"),
             port: 8080,
             base: String::from("/"),

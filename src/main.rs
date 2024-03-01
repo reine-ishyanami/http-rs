@@ -2,15 +2,19 @@ use std::{
     env,
     error::Error,
     fs::File,
-    io::{Read, Write}, path::Path,
+    io::{Read, Write},
+    path::Path,
 };
-
-mod entity;
-mod server;
 
 use crate::entity::Server;
 
 use crate::server::handle;
+
+use chrono::Local;
+use env_logger::Builder;
+
+mod entity;
+mod server;
 
 #[tokio::main]
 async fn main() {
@@ -56,7 +60,18 @@ async fn start(file_name: &str, default: bool) -> Result<(), Box<dyn Error>> {
             let mut contents = String::new();
             file.read_to_string(&mut contents)?;
             let server: Server = serde_yaml::from_str(&contents)?;
-            // println!("{:?}", server);
+            Builder::new()
+                .parse_filters(server.log_level.as_str())
+                .format(|buf, record| {
+                    writeln!(
+                        buf,
+                        "{} [{}] - {}",
+                        Local::now().format("%Y-%m-%dT%H:%M:%S"),
+                        record.level(),
+                        record.args()
+                    )
+                })
+                .init();
             handle(server).await;
         }
         Err(_) => {
