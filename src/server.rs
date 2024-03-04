@@ -1,5 +1,11 @@
-use std::{collections::HashMap, sync::Arc};
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::Read,
+    path::Path,
+    sync::{Arc, Mutex},
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -18,16 +24,16 @@ pub async fn handle(server: Server) {
 
     info!("http sevrer running on http://{}:{}", host, port);
 
-    let apis = Arc::new(server.apis);
+    let apis = Arc::new(Mutex::new(server.apis));
     let base_url = Arc::new(server.base);
     let error = Arc::new(server.error);
 
     let mut cors_header = String::new();
     if server.cors {
-        cors_header.push_str("Access-Control-Allow-Origin: *\r\n");  // 允许所有远程地址访问
-        cors_header.push_str("Access-Control-Allow-Methods: * \r\n");  // 允许所有请求方法
-        cors_header.push_str("Access-Control-Allow-Headers: Content-Type, Authorization, Content-Length, X-Requested-With \r\n");  // 允许如下请求头
-        cors_header.push_str("Access-Control-Allow-Credentials: true \r\n");  // 允许跨域请求携带凭据
+        cors_header.push_str("Access-Control-Allow-Origin: *\r\n"); // 允许所有远程地址访问
+        cors_header.push_str("Access-Control-Allow-Methods: * \r\n"); // 允许所有请求方法
+        cors_header.push_str("Access-Control-Allow-Headers: Content-Type, Authorization, Content-Length, X-Requested-With \r\n"); // 允许如下请求头
+        cors_header.push_str("Access-Control-Allow-Credentials: true \r\n"); // 允许跨域请求携带凭据
     }
 
     let cors_header = Arc::new(cors_header);
@@ -35,7 +41,11 @@ pub async fn handle(server: Server) {
     loop {
         let (mut socket, _) = listener.accept().await.unwrap();
         let socket_addr = &socket.peer_addr().unwrap();
-        debug!("New request came from {}, port {}", socket_addr.ip(), socket_addr.port());
+        debug!(
+            "New request came from {}, port {}",
+            socket_addr.ip(),
+            socket_addr.port()
+        );
         let apis = apis.clone();
         let base_url = base_url.clone();
         let error = error.clone();
@@ -67,24 +77,58 @@ pub async fn handle(server: Server) {
                     let map_keys: Vec<String> = query_map.keys().cloned().collect();
                     if let Some(arr) = opt {
                         if arr == map_keys {
-                            debug!("参数名称，参数数量匹配成功");
+                            debug!("Parameter name, parameter quantity matched successfully");
                             debug!("{:?}", query_map);
                         } else {
-                            warn!("参数名称，参数数量不完全匹配");
+                            warn!("Parameter name, number of parameters do not match exactly");
                             status_code = 400;
                         }
                     }
                 };
 
-                let mut genarate_response = |ele: &Api| {
+                // 在此作用域中定义error，以便进行修改
+                let mut error = error.as_str();
+
+                let mut genarate_response = |ele: &mut Api| {
                     // 判断参数是否匹配成功
                     equals_keys(ele.request.query.clone());
                     timeout = ele.response.timeout;
-                    let data = ele.response.data.clone();
-                    response = ele.response.content_type.wrap_response(data, cors_header.as_str());
+                    let mut data = ele.response.data.clone();
+                    // 判断是否指定返回类型为文件类型，如果是，则读取文件内容
+                    if let Some(is_file) = ele.response.is_file {
+                        if is_file {
+                            debug!("Reading file content in {}", data);
+                            match File::open(Path::new(data.as_str())) {
+                                Ok(file) => {
+                                    let mut file = file;
+                                    // 读取文件内容到字符串
+                                    let mut contents = String::new();
+                                    file.read_to_string(&mut contents).unwrap();
+                                    data = contents;
+                                    // 缓存第一次读取的内容，避免重复读取，影响性能
+                                    ele.response.data = data.clone();
+                                    ele.response.is_file = None;
+                                }
+                                Err(_) => {
+                                    // 读取不到文件
+                                    error = "The file specified cannot be found";
+                                    error!("{}", error);
+                                    return;
+                                }
+                            }
+                        } else {
+                            data = ele.response.data.clone();
+                        }
+                    } else {
+                        data = ele.response.data.clone();
+                    }
+                    response = ele
+                        .response
+                        .content_type
+                        .wrap_response(data, cors_header.as_str());
                 };
                 // 遍历接口配置信息
-                for ele in apis.iter() {
+                for ele in apis.lock().unwrap().iter_mut() {
                     if ele.request.method.to_string() != method
                         || !is_path_equals(path, base_url.as_ref(), &ele.request.url)
                     {
@@ -109,7 +153,7 @@ pub async fn handle(server: Server) {
                 }
                 // 如果状态码不为0，则返回参数不匹配
                 if status_code != 0 {
-                    let error = "参数不匹配";
+                    let error = "Parameters mismatch";
                     response = format!(
                         "HTTP/1.1 {} OK\r\n{}Content-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
                         status_code,

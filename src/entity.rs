@@ -1,5 +1,3 @@
-use std::{fs::File, io::Read, path::Path};
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -95,7 +93,6 @@ pub enum ContentType {
     HTML,
 }
 
-
 impl ContentType {
     pub fn wrap_response(&self, data: String, cors_header: &str) -> String {
         match self {
@@ -111,24 +108,12 @@ impl ContentType {
                 data.len(),
                 data
             ),
-            ContentType::HTML => {
-                // 如果类型是HTML，则返回结果应该是一个文件路径
-                match File::open(Path::new(data.as_str())) {
-                    Ok(file) => {
-                        let mut file = file;
-                        // 读取文件内容到字符串
-                        let mut contents = String::new();
-                        file.read_to_string(&mut contents).unwrap();
-                        format!(
-                            "HTTP/1.1 200 OK\r\n{}Content-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
-                            cors_header,
-                            contents.len(),
-                            contents
-                        )
-                    }
-                    Err(_) => String::new(),
-                }
-            }
+            ContentType::HTML => format!(
+                "HTTP/1.1 200 OK\r\n{}Content-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
+                cors_header,
+                data.len(),
+                data
+            )
         }
     }
 }
@@ -136,8 +121,8 @@ impl ContentType {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Response {
     pub timeout: u64,
-    // 响应内容类型，json或text
     pub content_type: ContentType,
+    pub is_file: Option<bool>,
     pub data: String,
 }
 
@@ -146,6 +131,7 @@ impl Default for Response {
         Self {
             timeout: 0,
             content_type: ContentType::TEXT,
+            is_file: Some(false),
             data: String::from("hello world"),
         }
     }
