@@ -40,7 +40,7 @@ impl Default for Api {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Eq, Hash, PartialEq)]
 pub enum HttpMethod {
     GET,
     POST,
@@ -67,9 +67,23 @@ impl HttpMethod {
             HttpMethod::TRACE => "TRACE",
         }
     }
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "GET" => Some(HttpMethod::GET),
+            "POST" => Some(HttpMethod::POST),
+            "PUT" => Some(HttpMethod::PUT),
+            "DELETE" => Some(HttpMethod::DELETE),
+            "HEAD" => Some(HttpMethod::HEAD),
+            "PATCH" => Some(HttpMethod::PATCH),
+            "OPTIONS" => Some(HttpMethod::OPTIONS),
+            "CONNECT" => Some(HttpMethod::CONNECT),
+            "TRACE" => Some(HttpMethod::TRACE),
+            _ => None,
+        }
+    }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Eq, Hash, PartialEq)]
 pub struct Request {
     pub method: HttpMethod,
     pub url: String,

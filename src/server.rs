@@ -4,7 +4,7 @@ use std::{
     fs::File,
     io::Read,
     path::Path,
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -12,7 +12,7 @@ use tokio::{
     time::{sleep, Duration},
 };
 
-use crate::entity::{Api, Server};
+use crate::entity::{Api, HttpMethod, Request, Response, Server};
 
 pub async fn handle(server: Server) {
     let host = server.host;
@@ -24,7 +24,7 @@ pub async fn handle(server: Server) {
 
     info!("http sevrer running on http://{}:{}", host, port);
 
-    let apis = Arc::new(Mutex::new(server.apis));
+    // let apis = Arc::new(Mutex::new(server.apis));
     let base_url = Arc::new(server.base);
     let error = Arc::new(server.error);
 
@@ -38,6 +38,14 @@ pub async fn handle(server: Server) {
 
     let cors_header = Arc::new(cors_header);
 
+    // 初始化一个hashmap，用于构建请求url与内容的映射
+    let mut url_map: HashMap<Request, Response> = HashMap::new();
+    for api in server.apis.iter() {
+        url_map.insert(api.request.clone(), api.response.clone());
+    }
+
+    let url_map = Arc::new(url_map);
+
     loop {
         let (mut socket, _) = listener.accept().await.unwrap();
         let socket_addr = &socket.peer_addr().unwrap();
@@ -46,10 +54,11 @@ pub async fn handle(server: Server) {
             socket_addr.ip(),
             socket_addr.port()
         );
-        let apis = apis.clone();
+        // let apis = apis.clone();
         let base_url = base_url.clone();
         let error = error.clone();
         let cors_header = cors_header.clone();
+        let url_map = url_map.clone();
         tokio::spawn(async move {
             let mut buf = [0; 1024];
             // 读取请求数据
@@ -71,31 +80,29 @@ pub async fn handle(server: Server) {
                 let mut response = String::new();
                 let mut timeout = 0u64;
                 let mut status_code = 0u16;
-                let query_map = parse_query_string(query);
+                // let query_map = parse_query_string(query);
                 // 判断请求的query参数是否与配置文件中指定的query参数一致
-                let mut equals_keys = |opt: Option<Vec<String>>| {
-                    let map_keys: Vec<String> = query_map.keys().cloned().collect();
-                    if let Some(arr) = opt {
-                        if arr == map_keys {
-                            debug!("Parameter name, parameter quantity matched successfully");
-                            debug!("{:?}", query_map);
-                        } else {
-                            warn!("Parameter name, number of parameters do not match exactly");
-                            status_code = 400;
-                        }
-                    }
-                };
+                // let mut equals_keys = |opt: Option<Vec<String>>| {
+                //     let map_keys: Vec<String> = query_map.keys().cloned().collect();
+                //     if let Some(arr) = opt {
+                //         if arr == map_keys {
+                //             debug!("Parameter name, parameter quantity matched successfully");
+                //             debug!("{:?}", query_map);
+                //         } else {
+                //             warn!("Parameter name, number of parameters do not match exactly");
+                //             status_code = 400;
+                //         }
+                //     }
+                // };
 
                 // 在此作用域中定义error，以便进行修改
                 let mut error = error.as_str();
 
-                let mut genarate_response = |ele: &mut Api| {
-                    // 判断参数是否匹配成功
-                    equals_keys(ele.request.query.clone());
-                    timeout = ele.response.timeout;
-                    let mut data = ele.response.data.clone();
+                let mut genarate_response = |resp: &Response| {
+                    timeout = resp.timeout;
+                    let mut data = resp.data.clone();
                     // 判断是否指定返回类型为文件类型，如果是，则读取文件内容
-                    if let Some(is_file) = ele.response.is_file {
+                    if let Some(is_file) = resp.is_file {
                         if is_file {
                             debug!("Reading file content in {}", data);
                             match File::open(Path::new(data.as_str())) {
@@ -105,9 +112,6 @@ pub async fn handle(server: Server) {
                                     let mut contents = String::new();
                                     file.read_to_string(&mut contents).unwrap();
                                     data = contents;
-                                    // 缓存第一次读取的内容，避免重复读取，影响性能
-                                    ele.response.data = data.clone();
-                                    ele.response.is_file = None;
                                 }
                                 Err(_) => {
                                     // 读取不到文件
@@ -117,25 +121,18 @@ pub async fn handle(server: Server) {
                                 }
                             }
                         } else {
-                            data = ele.response.data.clone();
+                            data = resp.data.clone();
                         }
                     } else {
-                        data = ele.response.data.clone();
+                        data = resp.data.clone();
                     }
-                    response = ele
-                        .response
-                        .content_type
-                        .wrap_response(data, cors_header.as_str());
+                    response = resp.content_type.wrap_response(data, cors_header.as_str());
                 };
-                // 遍历接口配置信息
-                for ele in apis.lock().unwrap().iter_mut() {
-                    if ele.request.method.to_string() != method
-                        || !is_path_equals(path, base_url.as_ref(), &ele.request.url)
-                    {
-                        continue;
-                    }
-                    genarate_response(ele);
-                    break;
+
+                let req = generate_request(path, base_url.as_str(), method, query);
+                let resp = url_map.get(&req);
+                if let Some(response) = resp {
+                    genarate_response(response);
                 }
                 // 如果超时时间不为0，则模拟接口请求耗时
                 if timeout > 0 {
@@ -166,6 +163,44 @@ pub async fn handle(server: Server) {
                 socket.write_all(response.as_bytes()).await.unwrap();
             }
         });
+    }
+}
+
+///
+///
+fn generate_request(path: &str, base_url: &str, method: &str, query: &str) -> Request {
+    // 获取method
+    let method = HttpMethod::from_str(method).unwrap();
+    // 获取url
+    let mut url: String;
+    if base_url != "/" {
+        url = path[base_url.len()..].to_owned();
+    } else {
+        url = path.to_owned();
+    }
+    if url.len() != 1 && url.ends_with("/") {
+        url.pop();
+    }
+    // 获取query
+    let map = parse_query_string(query);
+    let keys: Vec<&String> = map.keys().collect();
+    let query: Vec<String> = keys
+        .iter()
+        .map(|k| k.as_str())
+        .map(|s| s.to_owned())
+        .collect();
+    if map.is_empty() {
+        Request {
+            method,
+            url,
+            query: None,
+        }
+    } else {
+        Request {
+            method,
+            url,
+            query: Some(query),
+        }
     }
 }
 
