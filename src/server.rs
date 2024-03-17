@@ -1,15 +1,11 @@
+use std::{collections::HashMap, fs::File, io::Read, path::Path, sync::Arc};
+
 use log::{debug, error, info, warn};
-use std::{
-    collections::HashMap,
-    fs::File,
-    io::Read,
-    path::Path,
-    sync::Arc,
-};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
-    time::{sleep, Duration},
+    sync::Mutex,
+    time::{Duration, sleep},
 };
 
 use crate::entity::{Api, HttpMethod, Request, Response, Server};
@@ -22,7 +18,7 @@ pub async fn handle(server: Server) {
         .await
         .unwrap();
 
-    info!("http sevrer running on http://{}:{}", host, port);
+    info!("http server running on http://{}:{}", host, port);
 
     // let apis = Arc::new(Mutex::new(server.apis));
     let base_url = Arc::new(server.base);
@@ -44,7 +40,7 @@ pub async fn handle(server: Server) {
         url_map.insert(api.request.clone(), api.response.clone());
     }
 
-    let url_map = Arc::new(url_map);
+    let url_map = Arc::new(Mutex::new(url_map));
 
     loop {
         let (mut socket, _) = listener.accept().await.unwrap();
@@ -58,7 +54,7 @@ pub async fn handle(server: Server) {
         let base_url = base_url.clone();
         let error = error.clone();
         let cors_header = cors_header.clone();
-        let url_map = url_map.clone();
+        let mut url_map = url_map.clone();
         tokio::spawn(async move {
             let mut buf = [0; 1024];
             // 读取请求数据
@@ -98,7 +94,7 @@ pub async fn handle(server: Server) {
                 // 在此作用域中定义error，以便进行修改
                 let mut error = error.as_str();
 
-                let mut genarate_response = |resp: &Response| {
+                let mut genarate_response = |resp: &mut Response| {
                     timeout = resp.timeout;
                     let mut data = resp.data.clone();
                     // 判断是否指定返回类型为文件类型，如果是，则读取文件内容
@@ -111,7 +107,9 @@ pub async fn handle(server: Server) {
                                     // 读取文件内容到字符串
                                     let mut contents = String::new();
                                     file.read_to_string(&mut contents).unwrap();
-                                    data = contents;
+                                    data = contents.clone();
+                                    resp.is_file = Some(false);
+                                    resp.data = contents;
                                 }
                                 Err(_) => {
                                     // 读取不到文件
@@ -130,7 +128,8 @@ pub async fn handle(server: Server) {
                 };
 
                 let req = generate_request(path, base_url.as_str(), method, query);
-                let resp = url_map.get(&req);
+                let mut url_map = url_map.lock().await;
+                let resp = url_map.get_mut(&req);
                 if let Some(response) = resp {
                     genarate_response(response);
                 }
@@ -246,7 +245,6 @@ mod tests {
     use std::collections::HashMap;
 
     use super::is_path_equals;
-
     use super::parse_query_string;
 
     #[test]
