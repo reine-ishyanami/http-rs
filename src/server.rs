@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs::File, io::Read, path::Path, sync::Arc};
 
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -8,7 +8,7 @@ use tokio::{
     time::{Duration, sleep},
 };
 
-use crate::entity::{Api, HttpMethod, Request, Response, Server};
+use crate::entity::{HttpMethod, Request, Response, Server};
 
 pub async fn handle(server: Server) {
     let host = server.host;
@@ -54,7 +54,7 @@ pub async fn handle(server: Server) {
         let base_url = base_url.clone();
         let error = error.clone();
         let cors_header = cors_header.clone();
-        let mut url_map = url_map.clone();
+        let url_map = url_map.clone();
         tokio::spawn(async move {
             let mut buf = [0; 1024];
             // 读取请求数据
@@ -75,21 +75,7 @@ pub async fn handle(server: Server) {
 
                 let mut response = String::new();
                 let mut timeout = 0u64;
-                let mut status_code = 0u16;
-                // let query_map = parse_query_string(query);
-                // 判断请求的query参数是否与配置文件中指定的query参数一致
-                // let mut equals_keys = |opt: Option<Vec<String>>| {
-                //     let map_keys: Vec<String> = query_map.keys().cloned().collect();
-                //     if let Some(arr) = opt {
-                //         if arr == map_keys {
-                //             debug!("Parameter name, parameter quantity matched successfully");
-                //             debug!("{:?}", query_map);
-                //         } else {
-                //             warn!("Parameter name, number of parameters do not match exactly");
-                //             status_code = 400;
-                //         }
-                //     }
-                // };
+                let status_code = 0u16;
 
                 // 在此作用域中定义error，以便进行修改
                 let mut error = error.as_str();
@@ -169,7 +155,8 @@ pub async fn handle(server: Server) {
 ///
 fn generate_request(path: &str, base_url: &str, method: &str, query: &str) -> Request {
     // 获取method
-    let method = HttpMethod::from_str(method).unwrap();
+    // let method = HttpMethod::from_str(method).unwrap();
+    let method:HttpMethod = serde_yaml::from_str(method).unwrap();
     // 获取url
     let mut url: String;
     if base_url != "/" {
@@ -220,31 +207,10 @@ fn parse_query_string(query: &str) -> HashMap<String, String> {
         .collect() // 收集成 HashMap
 }
 
-///
-/// 判断全路径是否匹配得当
-fn is_path_equals(path: &str, base_url: &String, sub_url: &String) -> bool {
-    // 如果path以/结尾，则去掉最后的/
-    let path = if path.ends_with("/") && path.len() > 1 {
-        &path[..path.len() - 1]
-    } else {
-        path
-    };
-    if base_url == "/" {
-        path == sub_url
-    } else {
-        if sub_url == "/" {
-            path == base_url
-        } else {
-            path == format!("{}{}", base_url, sub_url)
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
-    use super::is_path_equals;
     use super::parse_query_string;
 
     #[test]
@@ -255,24 +221,5 @@ mod tests {
         map.insert(String::from("name"), String::from("reine"));
         map.insert(String::from("age"), String::from("23"));
         assert_eq!(result, map);
-    }
-
-    #[test]
-    fn is_path_equals_test() {
-        let data = [
-            ("/hello/", &String::from("/hello"), &String::from("/")),
-            ("/hello", &String::from("/hello"), &String::from("/")),
-            ("/hello/", &String::from("/"), &String::from("/hello")),
-            (
-                "/hello/reine",
-                &String::from("/hello"),
-                &String::from("/reine"),
-            ),
-            ("/", &String::from("/"), &String::from("/")),
-            ("//", &String::from("/"), &String::from("/")),
-        ];
-        for (a, b, c) in data {
-            assert!(is_path_equals(a, b, c));
-        }
     }
 }

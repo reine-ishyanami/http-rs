@@ -6,12 +6,11 @@ use std::{
     path::Path,
 };
 
-use crate::entity::Server;
-
-use crate::server::handle;
-
 use chrono::Local;
 use env_logger::Builder;
+
+use crate::entity::Server;
+use crate::server::handle;
 
 mod entity;
 mod server;
