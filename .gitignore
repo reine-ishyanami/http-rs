@@ -3,3 +3,4 @@ target/
 api.yml
 *.json
 *.html
+*.http

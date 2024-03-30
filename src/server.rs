@@ -1,11 +1,11 @@
 use std::{collections::HashMap, fs::File, io::Read, path::Path, sync::Arc};
 
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
     sync::Mutex,
-    time::{Duration, sleep},
+    time::{sleep, Duration},
 };
 
 use crate::entity::{HttpMethod, Request, Response, Server};
@@ -34,11 +34,19 @@ pub async fn handle(server: Server) {
 
     let cors_header = Arc::new(cors_header);
 
+    // 初始化一个hashmap，用于构建请求url与请求参数的映射
+    let mut param_map: HashMap<Request, Vec<String>> = HashMap::new();
     // 初始化一个hashmap，用于构建请求url与内容的映射
     let mut url_map: HashMap<Request, Response> = HashMap::new();
     for api in server.apis.iter() {
-        url_map.insert(api.request.clone(), api.response.clone());
+        let mut request = api.request.clone();
+        if let Some(arr) = request.query {
+            request.query = None;
+            param_map.insert(request.clone(), arr);
+        }
+        url_map.insert(request, api.response.clone());
     }
+    let param_map = Arc::new(param_map);
 
     let url_map = Arc::new(Mutex::new(url_map));
 
@@ -54,6 +62,7 @@ pub async fn handle(server: Server) {
         let base_url = base_url.clone();
         let error = error.clone();
         let cors_header = cors_header.clone();
+        let param_map = param_map.clone();
         let url_map = url_map.clone();
         tokio::spawn(async move {
             let mut buf = [0; 1024];
@@ -75,12 +84,12 @@ pub async fn handle(server: Server) {
 
                 let mut response = String::new();
                 let mut timeout = 0u64;
-                let status_code = 0u16;
+                let mut status_code = 0u16;
 
                 // 在此作用域中定义error，以便进行修改
                 let mut error = error.as_str();
 
-                let mut genarate_response = |resp: &mut Response| {
+                let mut generate_response = |resp: &mut Response| {
                     timeout = resp.timeout;
                     let mut data = resp.data.clone();
                     // 判断是否指定返回类型为文件类型，如果是，则读取文件内容
@@ -113,28 +122,55 @@ pub async fn handle(server: Server) {
                     response = resp.content_type.wrap_response(data, cors_header.as_str());
                 };
 
-                let req = generate_request(path, base_url.as_str(), method, query);
-                let mut url_map = url_map.lock().await;
-                let resp = url_map.get_mut(&req);
-                if let Some(response) = resp {
-                    genarate_response(response);
+                let query_arr: Vec<String> = parse_query_string(query)
+                    .keys()
+                    .collect::<Vec<_>>()
+                    .iter()
+                    .map(|k| k.as_str())
+                    .map(|s| s.to_owned())
+                    .collect();
+
+                let req = generate_request(path, base_url.as_str(), method);
+                // 处理请求信息，判断定义的请求参数与本次访问的请求参数是否一致
+                match param_map.get(&req) {
+                    None => {
+                        if query_arr.len() > 0 {
+                            status_code = 400;
+                            warn!("Parameter name or number does not match");
+                        }
+                    }
+                    Some(arr) => {
+                        if !arr.eq(&query_arr) {
+                            status_code = 400;
+                            warn!("Parameter name or number does not match");
+                        }
+                    }
                 }
-                // 如果超时时间不为0，则模拟接口请求耗时
-                if timeout > 0 {
-                    sleep(Duration::from_secs(timeout)).await;
-                }
-                // 如果没有返回结果，则返回错误信息
-                if response.len() == 0 {
-                    let error = error;
-                    response = format!(
-                        "HTTP/1.1 404 OK\r\n{}Content-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
-                        cors_header,
-                        error.len(),
-                        error
-                    );
+                // 如果已经判断为错误请求，则不进行下面的操作
+                if status_code == 0 {
+                    // 处理响应信息
+                    let mut url_map = url_map.lock().await;
+                    let resp = url_map.get_mut(&req);
+                    if let Some(response) = resp {
+                        generate_response(response);
+                    }
+                    // 如果超时时间不为0，则模拟接口请求耗时
+                    if timeout > 0 {
+                        sleep(Duration::from_secs(timeout)).await;
+                    }
+                    // 如果没有返回结果，则返回错误信息
+                    if response.len() == 0 {
+                        let error = error;
+                        response = format!(
+                            "HTTP/1.1 404 OK\r\n{}Content-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
+                            cors_header,
+                            error.len(),
+                            error
+                        );
+                    }
                 }
                 // 如果状态码不为0，则返回参数不匹配
-                if status_code != 0 {
+                else {
                     let error = "Parameters mismatch";
                     response = format!(
                         "HTTP/1.1 {} OK\r\n{}Content-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
@@ -152,11 +188,11 @@ pub async fn handle(server: Server) {
 }
 
 ///
+/// 根据请求数据构建请求参数类型
 ///
-fn generate_request(path: &str, base_url: &str, method: &str, query: &str) -> Request {
+fn generate_request(path: &str, base_url: &str, method: &str) -> Request {
     // 获取method
-    // let method = HttpMethod::from_str(method).unwrap();
-    let method:HttpMethod = serde_yaml::from_str(method).unwrap();
+    let method: HttpMethod = serde_yaml::from_str(method).unwrap();
     // 获取url
     let mut url: String;
     if base_url != "/" {
@@ -167,26 +203,11 @@ fn generate_request(path: &str, base_url: &str, method: &str, query: &str) -> Re
     if url.len() != 1 && url.ends_with("/") {
         url.pop();
     }
-    // 获取query
-    let map = parse_query_string(query);
-    let keys: Vec<&String> = map.keys().collect();
-    let query: Vec<String> = keys
-        .iter()
-        .map(|k| k.as_str())
-        .map(|s| s.to_owned())
-        .collect();
-    if map.is_empty() {
-        Request {
-            method,
-            url,
-            query: None,
-        }
-    } else {
-        Request {
-            method,
-            url,
-            query: Some(query),
-        }
+
+    Request {
+        method,
+        url,
+        query: None,
     }
 }
 
